@@ -72,3 +72,13 @@ async def update_meal(meal_id: str, meal_update: MealUpdate) -> Optional[Meal]:
 async def delete_meal(meal_id: str) -> bool:
     result = await db.meals.delete_one({"_id": ObjectId(meal_id)})
     return result.deleted_count == 1
+
+async def get_meals_by_month(year: int, month: int) -> List[Meal]:
+    """
+    Belirtilen yıl ve aydaki tüm yemekleri getirir.
+    """
+    meals = []
+    # find() metoduna sorgu filtresini veriyoruz
+    async for meal_data in db.meals.find({"year": year, "month": month}):
+        meals.append(Meal.model_validate(meal_data))
+    return meals

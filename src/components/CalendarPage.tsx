@@ -1,215 +1,219 @@
-
-import { useState } from "react";
+import { useState, useEffect } from 'react';
+import { Calendar } from '@/components/ui/calendar';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { useToast } from '@/components/ui/use-toast';
+import { format, isSameDay } from 'date-fns';
+import { createMeal, getMealsByMonth } from '@/services/mealService';
+import { Meal, MealCreate } from '@/types/meal';
+import { UtensilsCrossed, Sun, Moon, ChefHat, Trash2 } from 'lucide-react';
+import { Separator } from '@/components/ui/separator';
 
-const CalendarPage = () => {
-  const [currentDate, setCurrentDate] = useState(new Date());
-  const [selectedDay, setSelectedDay] = useState<number | null>(null);
+type DailyMeals = {
+  [day: number]: Meal[];
+};
 
-  const monthNames = [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December"
-  ];
+export default function CalendarPage() {
+  const { toast } = useToast();
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
+  const [monthlyMeals, setMonthlyMeals] = useState<DailyMeals>({});
+  
+  const [mealForm, setMealForm] = useState({
+    menu: '',
+    count: 0,
+    type: 'Lunch',
+  });
 
-  const getDaysInMonth = (date: Date) => {
-    return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+  // Seçilen güne ait yemekleri tutmak için yeni bir state
+  const [mealsForSelectedDay, setMealsForSelectedDay] = useState<Meal[]>([]);
+
+  // Ay değiştiğinde veya yeni yemek eklendiğinde takvimi günceller
+  useEffect(() => {
+    fetchMonthlyMeals();
+  }, [currentMonth]);
+
+  // Seçilen gün değiştiğinde sağ paneli günceller
+  useEffect(() => {
+    if (selectedDate) {
+      const dayOfMonth = selectedDate.getDate();
+      setMealsForSelectedDay(monthlyMeals[dayOfMonth] || []);
+    }
+  }, [selectedDate, monthlyMeals]);
+
+  const fetchMonthlyMeals = async () => {
+    const year = currentMonth.getFullYear();
+    const month = currentMonth.getMonth() + 1;
+    try {
+      const meals = await getMealsByMonth(year, month);
+      const mealsByDay: DailyMeals = {};
+      meals.forEach(meal => {
+        const day = new Date(meal.year, meal.month - 1, meal.day).getDate();
+        if (!mealsByDay[day]) {
+          mealsByDay[day] = [];
+        }
+        mealsByDay[day].push(meal);
+      });
+      setMonthlyMeals(mealsByDay);
+    } catch (error) {
+      console.error("Failed to fetch monthly meals:", error);
+      toast({ title: "Error", description: "Could not fetch meals.", variant: "destructive" });
+    }
   };
 
-  const getFirstDayOfMonth = (date: Date) => {
-    return new Date(date.getFullYear(), date.getMonth(), 1).getDay();
+  const handleDayClick = (day: Date | undefined) => {
+    if (!day) return;
+    setSelectedDate(day);
+    setMealForm({ menu: '', count: 0, type: 'Lunch' });
   };
 
-  const navigateMonth = (direction: 'prev' | 'next') => {
-    setCurrentDate(prev => {
-      const newDate = new Date(prev);
-      if (direction === 'prev') {
-        newDate.setMonth(prev.getMonth() - 1);
-      } else {
-        newDate.setMonth(prev.getMonth() + 1);
-      }
-      return newDate;
-    });
-    setSelectedDay(null);
+  const handleFormSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedDate || !mealForm.menu || mealForm.count <= 0) {
+      toast({ title: "Validation Error", description: "Please fill all fields correctly.", variant: "destructive" });
+      return;
+    }
+    const mealData: MealCreate = {
+      year: selectedDate.getFullYear(),
+      month: selectedDate.getMonth() + 1,
+      day: selectedDate.getDate(),
+      type: mealForm.type,
+      menu: mealForm.menu,
+      count: Number(mealForm.count),
+    };
+    try {
+      await createMeal(mealData);
+      toast({ title: "Success", description: "Meal has been added." });
+      setMealForm({ menu: '', count: 0, type: 'Lunch' });
+      fetchMonthlyMeals(); // Takvimi ve dolayısıyla sağ paneli güncelle
+    } catch (error) {
+      console.error("Failed to create meal:", error);
+      toast({ title: "Error", description: "Could not add the meal.", variant: "destructive" });
+    }
   };
 
-  const mealData: Record<number, Array<{type: string, menu: string, count: number}>> = {
-    5: [
-      { type: "Breakfast", menu: "Pancakes & Coffee", count: 45 },
-      { type: "Lunch", menu: "Grilled Chicken Salad", count: 120 }
-    ],
-    12: [
-      { type: "Breakfast", menu: "Oatmeal & Fruits", count: 38 },
-      { type: "Lunch", menu: "Pasta Primavera", count: 95 },
-      { type: "Dinner", menu: "Fish & Chips", count: 67 }
-    ],
-    18: [
-      { type: "Lunch", menu: "BBQ Sandwich", count: 85 }
-    ],
-    25: [
-      { type: "Breakfast", menu: "Bagel & Cream Cheese", count: 52 },
-      { type: "Lunch", menu: "Caesar Salad", count: 110 }
-    ]
-  };
-
-  const daysInMonth = getDaysInMonth(currentDate);
-  const firstDay = getFirstDayOfMonth(currentDate);
-  const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
-  const emptyDays = Array.from({ length: firstDay }, (_, i) => i);
-
-  const getMealTypeColor = (type: string) => {
-    switch(type) {
-      case "Breakfast": return "bg-blue-100 text-blue-800";
-      case "Lunch": return "bg-green-100 text-green-800";
-      case "Dinner": return "bg-orange-100 text-orange-800";
-      default: return "bg-gray-100 text-gray-800";
+  // İkonları öğün tipine göre döndüren yardımcı fonksiyon
+  const getMealIcon = (type: string) => {
+    switch (type) {
+      case 'Breakfast': return <Sun className="h-5 w-5 text-yellow-500" />;
+      case 'Lunch': return <UtensilsCrossed className="h-5 w-5 text-green-500" />;
+      case 'Dinner': return <Moon className="h-5 w-5 text-indigo-500" />;
+      default: return <ChefHat className="h-5 w-5 text-slate-500" />;
     }
   };
 
   return (
-    <div className="p-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-slate-800 mb-2">Meal Calendar</h1>
-        <p className="text-slate-600">Plan and manage daily meal schedules</p>
+    <div className="flex h-full p-4 md:p-8 gap-8">
+      {/* Sol Panel: Takvim */}
+      <div className="w-1/2 flex flex-col items-center">
+        <Card className="w-full">
+          <CardHeader><CardTitle>Meal Calendar</CardTitle></CardHeader>
+          <CardContent className="p-4 flex justify-center">
+            <Calendar
+              mode="single" selected={selectedDate} onSelect={handleDayClick}
+              month={currentMonth} onMonthChange={setCurrentMonth}
+              className="p-0"
+              classNames={{
+                cell: "h-16 w-16 text-center text-sm p-0 relative",
+                day: "h-16 w-16 p-1 rounded-md",
+                day_selected: "bg-blue-600 text-white hover:bg-blue-700 hover:text-white focus:bg-blue-600 focus:text-white",
+              }}
+              components={{
+                DayContent: ({ date: dayDate }) => {
+                  const dayOfMonth = dayDate.getDate();
+                  const mealsForDay = monthlyMeals[dayOfMonth];
+                  return (
+                    <div className="h-full w-full flex flex-col items-center justify-center p-1">
+                      <span className="mb-1">{dayOfMonth}</span>
+                      {mealsForDay && mealsForDay.length > 0 && (
+                         <div className="flex gap-1.5">
+                            {mealsForDay.some(m => m.type === 'Breakfast') && <Sun className="h-3 w-3 text-yellow-500" />}
+                            {mealsForDay.some(m => m.type === 'Lunch') && <UtensilsCrossed className="h-3 w-3 text-green-500" />}
+                            {mealsForDay.some(m => m.type === 'Dinner') && <Moon className="h-3 w-3 text-indigo-500" />}
+                         </div>
+                      )}
+                    </div>
+                  );
+                },
+              }}
+            />
+          </CardContent>
+        </Card>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Calendar */}
-        <div className="lg:col-span-2">
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-xl text-slate-800">
-                  {monthNames[currentDate.getMonth()]} {currentDate.getFullYear()}
-                </CardTitle>
-                <div className="flex space-x-2">
-                  <Button 
-                    variant="outline" 
-                    size="sm"
-                    onClick={() => navigateMonth('prev')}
-                  >
-                    <ChevronLeft size={16} />
-                  </Button>
-                  <Button 
-                    variant="outline" 
-                    size="sm"
-                    onClick={() => navigateMonth('next')}
-                  >
-                    <ChevronRight size={16} />
-                  </Button>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-7 gap-2 mb-4">
-                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
-                  <div key={day} className="p-2 text-center text-sm font-medium text-slate-600">
-                    {day}
-                  </div>
-                ))}
-              </div>
-              <div className="grid grid-cols-7 gap-2">
-                {emptyDays.map(day => (
-                  <div key={`empty-${day}`} className="p-2" />
-                ))}
-                {days.map(day => {
-                  const hasMeals = mealData[day];
-                  const isSelected = selectedDay === day;
-                  return (
-                    <button
-                      key={day}
-                      onClick={() => setSelectedDay(day)}
-                      className={cn(
-                        "p-2 min-h-[60px] border rounded-lg text-left transition-colors relative",
-                        isSelected ? "border-blue-500 bg-blue-50" : "border-slate-200 hover:bg-slate-50",
-                        hasMeals ? "bg-green-50 border-green-200" : ""
-                      )}
-                    >
-                      <span className={cn(
-                        "text-sm font-medium",
-                        isSelected ? "text-blue-700" : "text-slate-700"
-                      )}>
-                        {day}
-                      </span>
-                      {hasMeals && (
-                        <div className="mt-1">
-                          <div className="w-2 h-2 bg-green-500 rounded-full absolute top-2 right-2" />
-                          <div className="text-xs text-slate-600">
-                            {hasMeals.length} meal{hasMeals.length > 1 ? 's' : ''}
+      {/* Sağ Panel: Detaylar ve Form */}
+      <div className="w-1/2">
+        <Card className="sticky top-8">
+          <CardHeader>
+            <CardTitle>
+              {selectedDate ? `Details for ${format(selectedDate, 'MMMM d, yyyy')}` : "Select a day"}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {selectedDate ? (
+              <div className="space-y-6">
+                {/* Mevcut Yemekler Listesi */}
+                <div>
+                  <h3 className="text-lg font-semibold mb-2">Scheduled Meals</h3>
+                  {mealsForSelectedDay.length > 0 ? (
+                    <div className="space-y-3">
+                      {mealsForSelectedDay.map(meal => (
+                        <div key={meal._id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                          <div className="flex items-center gap-4">
+                            {getMealIcon(meal.type)}
+                            <div>
+                              <p className="font-medium text-slate-800">{meal.type}</p>
+                              <p className="text-sm text-slate-600">{meal.menu}</p>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                             <p className="font-semibold text-slate-800">{meal.count}</p>
+                             <p className="text-xs text-slate-500">people</p>
                           </div>
                         </div>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Meal Details */}
-        <div>
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-lg text-slate-800">
-                  {selectedDay ? `${monthNames[currentDate.getMonth()]} ${selectedDay}` : 'Select a Day'}
-                </CardTitle>
-                {selectedDay && (
-                  <Button size="sm" className="bg-blue-600 hover:bg-blue-700">
-                    <Plus size={16} className="mr-1" />
-                    Add Meal
-                  </Button>
-                )}
-              </div>
-            </CardHeader>
-            <CardContent>
-              {selectedDay ? (
-                <div className="space-y-4">
-                  {mealData[selectedDay] ? (
-                    mealData[selectedDay].map((meal, index) => (
-                      <div key={index} className="p-4 border border-slate-200 rounded-lg">
-                        <div className="flex items-center justify-between mb-2">
-                          <Badge className={getMealTypeColor(meal.type)}>
-                            {meal.type}
-                          </Badge>
-                          <span className="text-sm text-slate-500">{meal.count} servings</span>
-                        </div>
-                        <h4 className="font-medium text-slate-800">{meal.menu}</h4>
-                        <div className="flex space-x-2 mt-3">
-                          <Button size="sm" variant="outline" className="text-xs">
-                            Edit
-                          </Button>
-                          <Button size="sm" variant="outline" className="text-xs text-red-600 hover:text-red-700">
-                            Remove
-                          </Button>
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="text-center py-8">
-                      <p className="text-slate-500 mb-4">No meals planned for this day</p>
-                      <Button className="bg-blue-600 hover:bg-blue-700">
-                        <Plus size={16} className="mr-1" />
-                        Plan Meals
-                      </Button>
+                      ))}
                     </div>
+                  ) : (
+                    <p className="text-sm text-slate-500 text-center py-4">No meals scheduled for this day.</p>
                   )}
                 </div>
-              ) : (
-                <div className="text-center py-8">
-                  <p className="text-slate-500">Click on a calendar day to view or add meals</p>
+
+                <Separator />
+
+                {/* Yeni Yemek Ekleme Formu */}
+                <div>
+                    <h3 className="text-lg font-semibold mb-4">Add a New Meal</h3>
+                    <form onSubmit={handleFormSubmit} className="space-y-4">
+                        <div>
+                        <Label className="mb-2 block text-sm font-medium">Meal Type</Label>
+                        <div className="grid grid-cols-3 gap-2">
+                            <Button size="sm" type="button" variant={mealForm.type === 'Breakfast' ? 'default' : 'outline'} onClick={() => setMealForm(p => ({ ...p, type: 'Breakfast' }))}>Breakfast</Button>
+                            <Button size="sm" type="button" variant={mealForm.type === 'Lunch' ? 'default' : 'outline'} onClick={() => setMealForm(p => ({ ...p, type: 'Lunch' }))}>Lunch</Button>
+                            <Button size="sm" type="button" variant={mealForm.type === 'Dinner' ? 'default' : 'outline'} onClick={() => setMealForm(p => ({ ...p, type: 'Dinner' }))}>Dinner</Button>
+                        </div>
+                        </div>
+                        <div className="space-y-2">
+                        <Label htmlFor="menu">Menu Description</Label>
+                        <Input id="menu" placeholder="e.g., Grilled Salmon" value={mealForm.menu} onChange={(e) => setMealForm(p => ({ ...p, menu: e.target.value }))} required />
+                        </div>
+                        <div className="space-y-2">
+                        <Label htmlFor="count">Number of People</Label>
+                        <Input id="count" type="number" min="1" placeholder="e.g., 50" value={mealForm.count === 0 ? '' : mealForm.count} onChange={(e) => setMealForm(p => ({ ...p, count: parseInt(e.target.value, 10) || 0 }))} required />
+                        </div>
+                        <Button type="submit" className="w-full">Add This Meal</Button>
+                    </form>
                 </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+              </div>
+            ) : (
+              <div className="text-center text-slate-500 py-24">
+                <p>Click on a day in the calendar to view details and add meals.</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
-};
-
-export default CalendarPage;
+}

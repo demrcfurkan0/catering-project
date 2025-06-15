@@ -33,3 +33,13 @@ async def delete_existing_meal(meal_id: str):
     if not success:
         raise HTTPException(status_code=404, detail="Meal not found")
     return {"ok": True}
+
+@router.get("/by_month/{year}/{month}", response_model=List[Meal])
+async def read_meals_by_month(year: int, month: int):
+    """
+    Belirli bir aydaki tüm yemekleri getirir.
+    """
+    if not (2020 <= year <= 2050 and 1 <= month <= 12):
+        raise HTTPException(status_code=400, detail="Invalid year or month")
+    
+    return await crud.get_meals_by_month(year=year, month=month)

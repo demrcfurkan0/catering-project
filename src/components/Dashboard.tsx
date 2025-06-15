@@ -1,29 +1,48 @@
 import { useState, useEffect } from "react";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Users, Building2, Utensils } from "lucide-react";
+
+// Gerekli tüm servisleri ve tipleri import ediyoruz
 import { getAllCompanies } from "@/services/companyService";
 import { getAllEmployees } from "@/services/employeeService";
+import { getAllMeals } from "@/services/mealService";
 import { Company } from "@/types/company";
 import { Employee } from "@/types/employee";
+import { Meal } from "@/types/meal";
+
+// Grafik verileri için özel tipler
+type WeeklyMealData = { day: string; meals: number };
+type MealTypeData = { name: string; value: number; color: string };
 
 const Dashboard = () => {
+  // Tüm verileri tutacak state'ler
   const [companies, setCompanies] = useState<Company[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [meals, setMeals] = useState<Meal[]>([]);
+  
+  // Arayüz ve hesaplanmış veri state'leri
   const [isLoading, setIsLoading] = useState(true);
+  const [totalMealsToday, setTotalMealsToday] = useState(0);
+  const [weeklyMealData, setWeeklyMealData] = useState<WeeklyMealData[]>([]);
+  const [mealTypeData, setMealTypeData] = useState<MealTypeData[]>([]);
 
+  // Sayfa yüklendiğinde tüm verileri API'den çek
   useEffect(() => {
     const fetchData = async () => {
       try {
         setIsLoading(true);
-        const [companiesData, employeesData] = await Promise.all([
+        // Tüm API isteklerini aynı anda yap
+        const [companiesData, employeesData, mealsData] = await Promise.all([
           getAllCompanies(),
           getAllEmployees(),
+          getAllMeals(),
         ]);
         setCompanies(companiesData);
         setEmployees(employeesData);
+        setMeals(mealsData);
       } catch (error) {
         console.error("Failed to fetch dashboard data:", error);
       } finally {
@@ -34,18 +53,47 @@ const Dashboard = () => {
     fetchData();
   }, []);
 
-  const dailyMealData = [
-    { day: "Mon", meals: 450 }, { day: "Tue", meals: 520 },
-    { day: "Wed", meals: 380 }, { day: "Thu", meals: 490 },
-    { day: "Fri", meals: 620 }, { day: "Sat", meals: 280 },
-    { day: "Sun", meals: 190 },
-  ];
+  // Yemek verileri geldiğinde veya değiştiğinde kartları ve grafikleri güncelle
+  useEffect(() => {
+    if (meals.length === 0) return;
 
-  const mealTypeData = [
-    { name: "Breakfast", value: 35, color: "#3B82F6" },
-    { name: "Lunch", value: 45, color: "#10B981" },
-    { name: "Dinner", value: 20, color: "#F59E0B" },
-  ];
+    // 1. "Total Meals Today" kartı için veri hesaplama
+    const today = new Date();
+    const todaysMealsCount = meals
+      .filter(m => 
+        m.year === today.getFullYear() && 
+        m.month === today.getMonth() + 1 && 
+        m.day === today.getDate()
+      )
+      .reduce((sum, meal) => sum + meal.count, 0);
+    setTotalMealsToday(todaysMealsCount);
+
+    // 2. "Weekly Meal Distribution" grafiği için veri hesaplama
+    const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const weeklyData = dayNames.map(day => ({ day, meals: 0 }));
+    
+    meals.forEach(meal => {
+      const mealDate = new Date(meal.year, meal.month - 1, meal.day);
+      const dayIndex = mealDate.getDay();
+      weeklyData[dayIndex].meals += meal.count;
+    });
+    setWeeklyMealData(weeklyData);
+
+    // 3. "Meal Types Distribution" grafiği için veri hesaplama
+    const typeDistribution = { Breakfast: 0, Lunch: 0, Dinner: 0 };
+    meals.forEach(meal => {
+        if (typeDistribution.hasOwnProperty(meal.type)) {
+            typeDistribution[meal.type as keyof typeof typeDistribution] += meal.count;
+        }
+    });
+
+    setMealTypeData([
+      { name: "Breakfast", value: typeDistribution.Breakfast, color: "#3B82F6" },
+      { name: "Lunch", value: typeDistribution.Lunch, color: "#10B981" },
+      { name: "Dinner", value: typeDistribution.Dinner, color: "#F59E0B" },
+    ]);
+
+  }, [meals]);
 
   const activeCompaniesCount = companies.filter(c => c.status === "Active").length;
 
@@ -56,13 +104,14 @@ const Dashboard = () => {
         <p className="text-slate-600">Overview of your catering operations.</p>
       </div>
 
+      {/* Üst Kısım: 3 Ana Kart */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <Card className="bg-gradient-to-r from-blue-500 to-blue-600 text-white">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-blue-100 text-sm">Total Meals Today</p>
-                <p className="text-3xl font-bold">620</p>
+                <p className="text-3xl font-bold">{isLoading ? "..." : totalMealsToday}</p>
               </div>
               <Utensils size={40} className="text-blue-200" />
             </div>
@@ -92,14 +141,16 @@ const Dashboard = () => {
         </Card>
       </div>
 
+      {/* Orta Kısım: Grafikler */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
         <Card className="lg:col-span-3">
           <CardHeader>
             <CardTitle className="text-slate-800">Weekly Meal Distribution</CardTitle>
           </CardHeader>
           <CardContent>
+            {isLoading ? <Skeleton className="h-[300px] w-full" /> : (
             <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={dailyMealData}>
+              <BarChart data={weeklyMealData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                 <XAxis dataKey="day" stroke="#64748b" />
                 <YAxis stroke="#64748b" />
@@ -107,6 +158,7 @@ const Dashboard = () => {
                 <Bar dataKey="meals" fill="#3B82F6" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
+            )}
           </CardContent>
         </Card>
         <Card className="lg:col-span-2">
@@ -114,26 +166,22 @@ const Dashboard = () => {
             <CardTitle className="text-slate-800">Meal Types Distribution</CardTitle>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={250}>
+          {isLoading ? <Skeleton className="h-[300px] w-full" /> : (
+            <ResponsiveContainer width="100%" height={300}>
               <PieChart>
-                <Pie data={mealTypeData} cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={5} dataKey="value">
+                <Pie data={mealTypeData} cx="50%" cy="50%" labelLine={false} outerRadius={110} dataKey="value" nameKey="name">
                   {mealTypeData.map((entry, index) => (<Cell key={`cell-${index}`} fill={entry.color} />))}
                 </Pie>
-                <Tooltip formatter={(value) => `${value}%`} />
+                <Tooltip formatter={(value) => `${value} meals`} />
+                <Legend />
               </PieChart>
             </ResponsiveContainer>
-            <div className="flex justify-center space-x-4 mt-4">
-              {mealTypeData.map((item) => (
-                <div key={item.name} className="flex items-center space-x-2">
-                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }} />
-                  <span className="text-sm text-slate-600">{item.name}</span>
-                </div>
-              ))}
-            </div>
+          )}
           </CardContent>
         </Card>
       </div>
 
+      {/* Alt Kısım: Şirket ve Çalışan Listeleri */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
           <CardHeader>
@@ -150,7 +198,7 @@ const Dashboard = () => {
                   <div key={company._id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors">
                     <div>
                       <h4 className="font-semibold text-slate-800">{company.name}</h4>
-                      <p className="text-sm text-slate-600">{company.employeesCount} employees</p>
+                      <p className="text-sm text-slate-600">{company.email}</p>
                     </div>
                     <Badge className={company.status === "Active" ? "bg-green-100 text-green-800" : "bg-yellow-100 text-yellow-800"}>
                       {company.status}
